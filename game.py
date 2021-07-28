@@ -421,18 +421,3 @@ def run(rules):
             print(f"You lost ${money * -1}")
         print(f"Your bankroll is ${bankroll}")
         game.reset_hands()
-
-
-#########
-# DEBUG
-#########
-
-def debug():
-    hand = Hand([Card(2), Card(3)])
-    print(hand.get_value())
-    hand.add_card(Card(3))
-    print(hand.get_value())
-
-
-if __name__ == '__main__':
-    debug()
