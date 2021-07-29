@@ -8,6 +8,7 @@ class Card:
             self.face_value = str(self.value)
         else:
             self.face_value = face_value
+        self.true_value = value
 
     def __repr__(self):
         return f"{self.face_value}:{self.value}" if self.value is None else f"{self.face_value}"
@@ -79,7 +80,9 @@ class Hand:
             self.cards.append(card)
 
     def copy(self):
-        new_cards = self.cards[:]
+        new_cards = []
+        for card in self.cards:
+            new_cards.append(Card(card.value))
         return Hand(new_cards)
 
 
@@ -106,24 +109,25 @@ class Shoe:
         else:
             self.shoe.insert(len(self.shoe), Card(None, "S"))
 
-    def deal(self):
+    def deal(self, shuffle):
         next_card = self.shoe.pop(0)
-        shuffle = False
         if next_card.face_value == "C":
-            shuffle = True
             next_card = self.shoe.pop(0)
+            return next_card, True
         elif next_card.face_value == "S":
             return "S", False
-        return next_card, shuffle
+        else:
+            return next_card, True if shuffle else False
 
 
 class Game:
-    def __init__(self, rules, std_deck, bankroll):
+    def __init__(self, rules, std_deck, bankroll, strategy):
         self.rules = rules
         self.std_deck = std_deck
         self.reset_hands()
         self.shoe = Shoe(std_deck, rules["decks"], rules["pene"])
         self.bankroll = bankroll
+        self.strategy = strategy
         self.bet = 0
 
     def __repr__(self):
@@ -133,12 +137,14 @@ class Game:
         self.player_hands = [Hand([])]
         self.dealer_hand = Hand([])
 
-    def next_card(self):
-        next_card, shuffle = self.shoe.deal()
+    def next_card(self, shuffle):
+        next_card, shuffle = self.shoe.deal(shuffle)
         if next_card == "S":
             print("No more cards, reshuffling...")
+            if self.strategy:
+                self.strategy.running_count = 4 - (4 * self.rules["decks"])
             self.shoe = Shoe(self.std_deck, self.rules["decks"], self.rules["pene"])
-            next_card, shuffle = self.shoe.deal()
+            next_card, shuffle = self.shoe.deal(shuffle)
         return next_card, shuffle
 
     def check_soft(self, hand):
@@ -163,8 +169,10 @@ class Game:
                 if self.rules["s17"]:
                     print("Dealer stands!")
                     return hand_value, shuffle
-            card, shuffle = self.next_card()
+            card, shuffle = self.next_card(shuffle)
             self.dealer_hand.add_card(card)
+            if self.strategy:
+                self.strategy.update_running_count(card)
             print("")
             print(f"Dealer draws {card.value}!")
             print(f"Dealer hand: {self.dealer_hand}")
@@ -206,12 +214,16 @@ class Game:
         elif len(hand.cards) == 1:
             if hand[0].value == 11:
                 if not self.rules["hit_aces"]:
-                    card, shuffle = self.next_card()
+                    card, shuffle = self.next_card(shuffle)
                     hand.add_card(card)
+                    if self.strategy:
+                        self.strategy.update_running_count(card)
                     print(f"Your hand is now {hand}!")
                     return [], shuffle
-            card, shuffle = self.next_card()
+            card, shuffle = self.next_card(shuffle)
             hand.add_card(card)
+            if self.strategy:
+                self.strategy.update_running_count(card)
             print(f"Your hand is now {hand}!")
             return self.get_decisions(hand, shuffle)
         return (decisions, shuffle)
@@ -228,7 +240,10 @@ class Game:
         print("")
 
         while True:
-            decision = input("Enter decision from above: ")
+            if not self.strategy:
+                decision = input("Enter decision from above: ")
+            else:
+                decision = self.strategy.sim_decision(decisions, self.player_hands[count].get_value(), self.dealer_hand[0].value, self.check_soft(self.player_hands[count]))
             if decision == "st":
                 decision = "Stand"
             elif decision == "h":
@@ -243,6 +258,8 @@ class Game:
             if decision in decisions:
                 break
             else:
+                if self.strategy:
+                    raise Exception("Lul wut are you doing")
                 print("Not a valid decision!")
 
         if decision == "Stand":
@@ -250,22 +267,32 @@ class Game:
             print("")
             return ("Stand", shuffle)
         elif decision == "Hit":
-            card, shuffle = self.next_card()
+            card, shuffle = self.next_card(shuffle)
             self.player_hands[count].add_card(card)
+            if self.strategy:
+                self.strategy.update_running_count(card)
             print(f"You drew {card}!")
             print("")
             return ("Hit", shuffle)
         elif decision == "Double":
-            card, shuffle = self.next_card()
+            card, shuffle = self.next_card(shuffle)
             self.player_hands[count].add_card(card)
             self.player_hands[count].set_doubled()
+            self.player_hands[count].set_bet(self.bet * 2)
+            self.bankroll -= self.bet
+            if self.strategy:
+                self.strategy.update_running_count(card)
             print(f"You doubled and drew {card}!")
             print("")
             return ("Double", shuffle)
         elif decision == "Split":
             hand = self.player_hands.pop(count)
-            hand1 = Hand([hand.cards[0]]).set_split()
-            hand2 = Hand([hand.cards[1]]).set_split().set_bet(self.bet)
+            hand1 = Hand([hand.cards[0]])
+            hand1.set_split()
+            hand2 = Hand([hand.cards[1]])
+            hand2.set_split()
+            hand2.set_bet(self.bet)
+            self.bankroll -= self.bet
             self.player_hands.insert(count, hand1)
             self.player_hands.insert(count + 1, hand2)
             print("You split your hand!")
@@ -277,24 +304,33 @@ class Game:
             print("")
             return ("Surrender", shuffle)
 
-    def play_round(self, bet):
+    def play_round(self, bet, shuffle):
         self.bankroll -= bet
+        print(f"Your bankroll is ${self.bankroll}")
+        print("")
         self.bet = bet
         self.player_hands[0].set_bet(bet)
-        shuffle = False
 
         # Initial deal
-        card, shuffle = self.next_card()
+        card, shuffle = self.next_card(shuffle)
         self.player_hands[0].add_card(card)
+        if self.strategy:
+            self.strategy.update_running_count(card)
 
-        card, shuffle = self.next_card()
+        card, shuffle = self.next_card(shuffle)
         self.dealer_hand.add_card(card)
+        if self.strategy:
+            self.strategy.update_running_count(card)
 
-        card, shuffle = self.next_card()
+        card, shuffle = self.next_card(shuffle)
         self.player_hands[0].add_card(card)
+        if self.strategy:
+            self.strategy.update_running_count(card)
 
-        card, shuffle = self.next_card()
+        card, shuffle = self.next_card(shuffle)
         self.dealer_hand.add_card(card)
+        if self.strategy:
+            self.strategy.update_running_count(card)
 
         print("")
         print(f"Your hand: {self.player_hands[0]}, Dealer hand: {self.dealer_hand.hide_hole_card()}")
@@ -307,16 +343,19 @@ class Game:
                     print(f"Dealers hole card is {self.dealer_hand[1]}!")
                     print(f"Dealer has blackjack! {self.dealer_hand}, Draw!")
                     self.bankroll += bet
-                    return bet
+                    return bet, shuffle
                 else:
                     print(f"Dealers hole card is {self.dealer_hand[1]}!")
                     print(f"Dealer has blackjack! {self.dealer_hand}, You lose!")
-                    return 0
+                    return -bet, shuffle
 
         # Insurance
         if self.dealer_hand[0].value == 11:
-            insurance = input("Insure hand? (Y/N): ")[0].upper()
-            print("")
+            if not self.strategy:
+                insurance = input("Insure hand? (Y/N): ")[0].upper()
+                print("")
+            else:
+                insurance = "N"
             if insurance == "Y":
                 insurance = True
                 self.bankroll -= bet / 2
@@ -328,8 +367,8 @@ class Game:
                 print(f"Dealer has blackjack! {self.dealer_hand}, You lose!")
                 if insurance:
                     self.bankroll += bet
-                    return bet
-                return 0
+                    return bet, shuffle
+                return -bet, shuffle
             print("Dealer does not have blackjack!")
 
         # Check for player blackjack
@@ -338,11 +377,13 @@ class Game:
             if self.dealer_hand.get_value() == 21:
                 print(f"Dealers hole card is {self.dealer_hand[1]}!")
                 print(f"Dealer has blackjack! {self.dealer_hand}, Draw!")
-                return bet
+                self.bankroll += bet
+                return bet, shuffle
             else:
                 print(f"Dealers hole card is {self.dealer_hand[1]}!")
                 print(f"Dealer doesn't have blackjack! {self.dealer_hand}, You win!")
-                return bet * self.rules["bj_payout"]
+                self.bankroll += bet * self.rules["bj_payout"]
+                return bet * self.rules["bj_payout"], shuffle
 
         # Player plays
         count = 0
@@ -353,10 +394,11 @@ class Game:
                 decisions, shuffle = self.get_decisions(hand, shuffle)
                 if not decisions:
                     any_decisions = False
-                choice, shuffle = self.make_decision(decisions, shuffle, count)
-                if choice == "Stand" or choice == "Double":
-                    any_decisions = False
-                hand = self.player_hands[count]
+                else:
+                    choice, shuffle = self.make_decision(decisions, shuffle, count)
+                    if choice == "Stand" or choice == "Double":
+                        any_decisions = False
+                    hand = self.player_hands[count]
             if any_decisions:
                 print("You've busted!")
                 print("")
@@ -376,21 +418,30 @@ class Game:
                 print(f"Your hand {hand}, beats {self.dealer_hand}!")
                 self.bankroll += hand.bet * 2
                 money += hand.bet * 2
+                if self.strategy:
+                    self.strategy.win()
             elif hand.get_value() == final_dealer_value:
                 print(f"Your hand {hand}, draws with {self.dealer_hand}!")
                 self.bankroll += bet
                 money += hand.bet
+                if self.strategy:
+                    self.strategy.draw()
             else:
                 print(f"Your hand {hand}, loses to {self.dealer_hand}!")
                 money -= hand.bet
+                if self.strategy:
+                    self.strategy.lose()
 
         # Shuffle if necessary
         if shuffle:
+            shuffle = False
             print("Hit the cut card in the last hand, shuffling!")
             print("")
             self.shoe = Shoe(self.std_deck, self.rules["decks"], self.rules["pene"])
+            if self.strategy:
+                self.strategy.running_count = 4 - (4 * self.rules["decks"])
 
-        return money
+        return money, shuffle
 
 
 ###########
@@ -398,26 +449,41 @@ class Game:
 ###########
 
 
-def run(rules):
+def run(rules, strategy):
     std_deck = [Card(2), Card(3), Card(4), Card(5), Card(6), Card(7), Card(8), Card(9), Card(10), Card(10, "J"), Card(10, "Q"), Card(10, "K"), Card(11, "A"),
                 Card(2), Card(3), Card(4), Card(5), Card(6), Card(7), Card(8), Card(9), Card(10), Card(10, "J"), Card(10, "Q"), Card(10, "K"), Card(11, "A"),
                 Card(2), Card(3), Card(4), Card(5), Card(6), Card(7), Card(8), Card(9), Card(10), Card(10, "J"), Card(10, "Q"), Card(10, "K"), Card(11, "A"),
                 Card(2), Card(3), Card(4), Card(5), Card(6), Card(7), Card(8), Card(9), Card(10), Card(10, "J"), Card(10, "Q"), Card(10, "K"), Card(11, "A")]
-    bankroll = int(input("Enter starting bankroll (min bets are $1): "))
+    bankroll = input("Enter starting bankroll (min bets are $1): ")
     bankroll = bankroll.strip("$")
-    game = Game(rules, std_deck, bankroll)
-    while bankroll > 0:
+    bankroll = float(bankroll)
+    starting_bankroll = bankroll
+    game = Game(rules, std_deck, bankroll, strategy)
+    count = int(input("Enter number of hands to play: ")) if strategy else -1
+    start_count = count
+    shuffle = False
+    while game.bankroll > 0 and count != 0:
         print("")
-        bet = int(input("Enter bet amount: "))
-        bet = bet.strip("$")
-        bankroll -= bet
-        print(f"Your bankroll is ${bankroll}")
-        money = game.play_round(bet)
-        print("")
+        if not strategy:
+            bet = input("Enter bet amount: ")
+            bet = bet.strip("$")
+            bet = float(bankroll)
+        else:
+            bet = strategy.bet_multiplier()
+        money, shuffle = game.play_round(bet, shuffle)
         if money > 0:
             print(f"You won ${money}!")
-            bankroll += money
         else:
             print(f"You lost ${money * -1}")
-        print(f"Your bankroll is ${bankroll}")
+        print(f"Your bankroll is ${game.bankroll}")
         game.reset_hands()
+        if strategy:
+            count -= 1
+    print(f"You made {game.bankroll - starting_bankroll}")
+    if strategy:
+        win = (strategy.wdl_count[0] / (start_count - count)) * 100
+        draw = (strategy.wdl_count[1] / (start_count - count)) * 100
+        loss = (strategy.wdl_count[2] / (start_count - count)) * 100
+        print("")
+        print(f"Hands played: {start_count - count}")
+        print(f"Win {win:.2f}%, Draw {draw:.2f}%, Loss {loss:.2f}%, \n House Edge via Basic Strategy: {(win + draw - loss):.2f}, \n House Edge via Profit: {(100 - ((game.bankroll / starting_bankroll) * 100)):.2f}")

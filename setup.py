@@ -1,4 +1,5 @@
 import game
+import simulator
 
 while True:
     decks = input("Enter number of decks: ")
@@ -42,7 +43,7 @@ while True:
 while True:
     bjpayout = input("Enter multiplier for natural blackjack (1.5 for 3 to 2, 1.2 for 6 to 5): ")
     try:
-        float(bjpayout)
+        bjpayout = float(bjpayout)
     except ValueError:
         print("Not a number!")
     else:
@@ -130,6 +131,17 @@ while True:
     else:
         print("Not yes or no!")
 
+while True:
+    sim = input("Simulator Mode? (Y/N): ")[0].upper()
+    if sim == "Y":
+        sim = True
+        break
+    elif sim == "N":
+        sim = False
+        break
+    else:
+        print("Not yes or no!")
+
 rules = {
     "decks": decks,
     "pene": pene,
@@ -140,10 +152,21 @@ rules = {
     "resplit": resplit,
     "resplit_aces": resplitaces,
     "hit_aces": hitaces,
-    # "lose_bj": losebj,
     "peeks": peeks,
-    "late_surr": latesurr
+    "late_surr": latesurr,
 }
 
+if sim:
+    basic_strategy = simulator.StrategyTable()
+    while True:
+        strat_name = input("Enter strategy name, 'Rookie' for KO Rookie, 'Rad' for KO Rad, and 'Pref' for KO Preferred: ")
+        if strat_name == "Rookie":
+            bet_spread = int(input("Enter high value of bet spread: "))
+            strategy = simulator.Strategy(basic_strategy, rules, bet_spread, False)
+            break
+else:
+    strategy = None
+
+
 print("")
-game.run(rules)
+game.run(rules, strategy)
