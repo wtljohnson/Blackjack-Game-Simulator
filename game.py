@@ -343,10 +343,12 @@ class Game:
                     print(f"Dealers hole card is {self.dealer_hand[1]}!")
                     print(f"Dealer has blackjack! {self.dealer_hand}, Draw!")
                     self.bankroll += bet
+                    self.strategy.draw()
                     return bet, shuffle
                 else:
                     print(f"Dealers hole card is {self.dealer_hand[1]}!")
                     print(f"Dealer has blackjack! {self.dealer_hand}, You lose!")
+                    self.strategy.lose()
                     return -bet, shuffle
 
         # Insurance
@@ -363,12 +365,22 @@ class Game:
             else:
                 insurance = False
             if self.dealer_hand.get_value() == 21:
-                print(f"Dealers hole card is {self.dealer_hand[1]}!")
-                print(f"Dealer has blackjack! {self.dealer_hand}, You lose!")
-                if insurance:
+                if self.player_hands[0].get_value() == 21:
+                    print(f"Dealers hole card is {self.dealer_hand[1]}!")
+                    print(f"Dealer has blackjack! {self.dealer_hand}, Draw!")
                     self.bankroll += bet
+                    self.strategy.draw()
                     return bet, shuffle
-                return -bet, shuffle
+                else:
+                    print(f"Dealers hole card is {self.dealer_hand[1]}!")
+                    print(f"Dealer has blackjack! {self.dealer_hand}, You lose!")
+                    if insurance:
+                        self.bankroll += bet
+                        self.strategy.lose()
+                        return bet, shuffle
+                    else:
+                        self.strategy.lose()
+                        return -bet, shuffle
             print("Dealer does not have blackjack!")
 
         # Check for player blackjack
@@ -378,11 +390,13 @@ class Game:
                 print(f"Dealers hole card is {self.dealer_hand[1]}!")
                 print(f"Dealer has blackjack! {self.dealer_hand}, Draw!")
                 self.bankroll += bet
+                self.strategy.draw()
                 return bet, shuffle
             else:
                 print(f"Dealers hole card is {self.dealer_hand[1]}!")
                 print(f"Dealer doesn't have blackjack! {self.dealer_hand}, You win!")
                 self.bankroll += bet * self.rules["bj_payout"]
+                self.strategy.win()
                 return bet * self.rules["bj_payout"], shuffle
 
         # Player plays
